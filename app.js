@@ -3,7 +3,7 @@
 const DB = 'shelf', STORE = 'books', MIRROR = 'shelf-mirror', LASTBK = 'shelf-last-backup', PROFILE_KEY = 'mabooks-profile';
 const PAGE_N = 30;
 let shown = PAGE_N, curList = [], cardHTML = null, io = null;
-let books = [], page = 'reading', query = '', fYear = '', fMonth = '', fRange = null, lastBuckets = [], rangeKey = '6M', deferredPrompt = null;
+let books = [], page = 'reading', query = '', fYear = '', fMonth = '', fRange = null, lastBuckets = [], chartYear = '', rangeKey = '6M', deferredPrompt = null;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -238,14 +238,13 @@ const RANGES = {
   '1M':  {months: 0,  name: 'in the last month'},
   '3M':  {months: 3,  name: 'in the last 3 months'},
   '6M':  {months: 6,  name: 'in the last 6 months'},
-  '12M': {months: 12, name: 'in the last 12 months'},
-  'All': {months: 0,  name: 'in total'}
+  '12M': {months: 12, name: 'in the last 12 months'}
 };
-function rangeStats(key) {
+function rangeStats(key, yr) {
   const now = new Date(); now.setHours(12, 0, 0, 0);
   const to = ymd(now);
   const done = books.filter(b => b.status === 'read' && isDate(b.finished));
-  const buckets = []; let clipped = false;
+  const buckets = [];
   if (key === '1M') {                       // last 30 days in six 5-day bars
     const start = new Date(now); start.setDate(start.getDate() - 29);
     for (let i = 0; i < 6; i++) {
@@ -253,26 +252,10 @@ function rangeStats(key) {
       const e = new Date(s); e.setDate(e.getDate() + 4);
       buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, label: `${s.getMonth() + 1}/${s.getDate()}`});
     }
-  } else if (key === 'All') {               // from your first finished book: monthly bars for up to 2 years, then one bar per year
-    const past = done.filter(b => b.finished <= to).map(b => b.finished).sort();
-    const first = past.length ? past[0] : to, curY = now.getFullYear();
-    const fy = +first.slice(0, 4), fm = +first.slice(5, 7) - 1;
-    const months = (curY - fy) * 12 + now.getMonth() - fm + 1;
-    if (months > 24) {
-      const y0 = Math.max(fy, curY - 11);   // at most the latest 12 years, so bars stay readable
-      clipped = y0 > fy;
-      const nY = curY - y0 + 1;
-      for (let y = y0; y <= curY; y++) {
-        const hi = `${y}-12-31`;
-        buckets.push({lo: `${y}-01-01`, hi: hi < to ? hi : to, label: nY > 8 ? '’' + String(y).slice(2) : String(y), y: String(y)});
-      }
-    } else {
-      for (let i = 0; i < Math.max(1, months); i++) {
-        const s = new Date(fy, fm + i, 1, 12), e = new Date(s.getFullYear(), s.getMonth() + 1, 0, 12);
-        buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, y: String(s.getFullYear()), m: s.getMonth(),
-          label: months <= 12 || s.getMonth() % 2 === 0 ? s.toLocaleDateString(undefined, {month:'short'}) : '',
-          sub: i === 0 || s.getMonth() === 0 ? String(s.getFullYear()) : ''});
-      }
+  } else if (key === '12M' && yr) {         // one chosen calendar year: Jan-Dec
+    for (let m = 0; m < 12; m++) {
+      const s = new Date(+yr, m, 1, 12), e = new Date(+yr, m + 1, 0, 12);
+      buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, y: yr, m, label: s.toLocaleDateString(undefined, {month:'short'}), sub: m === 0 ? yr : ''});
     }
   } else {                                  // last N calendar months, one bar each
     const n = RANGES[key].months;
@@ -280,13 +263,14 @@ function rangeStats(key) {
       const s = new Date(now.getFullYear(), now.getMonth() - i, 1, 12);
       const e = new Date(s.getFullYear(), s.getMonth() + 1, 0, 12);
       buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, y: String(s.getFullYear()), m: s.getMonth(), label: s.toLocaleDateString(undefined, {month:'short'}),
-        sub: i === n - 1 || s.getMonth() === 0 ? String(s.getFullYear()) : ''});
+        sub: s.getMonth() === 0 ? String(s.getFullYear()) : ''});
     }
   }
   const from = buckets[0].lo;
+  const yEnd = yr ? `${yr}-12-31` : to, end = key === '12M' && yr && yEnd < to ? yEnd : to;
   buckets.forEach(b => { b.count = done.filter(x => x.finished >= b.lo && x.finished <= b.hi).length; });
-  const inRange = done.filter(x => x.finished >= from && x.finished <= to);
-  return {from, to, buckets, clipped, total: inRange.length, rated: inRange.filter(x => x.rating > 0)};
+  const inRange = done.filter(x => x.finished >= from && x.finished <= end);
+  return {from, to: end, buckets, total: inRange.length, rated: inRange.filter(x => x.rating > 0)};
 }
 
 function chartSVG(buckets) {
@@ -325,7 +309,7 @@ function render() {
     reading: reading.length ? `${reading.length} in progress` : 'What you’re reading now',
     read: read.length ? `${read.length} finished · ${thisYear} in ${y}` : 'Books you’ve finished',
     want: want.length ? `${want.length} to read` : 'Books you want to read',
-    profile: 'Your reading year'
+    profile: ''
   })[page];
   const onProfile = page === 'profile';
   $('fab').hidden = onProfile;
@@ -444,7 +428,11 @@ async function startReading(id) {
 }
 
 function renderProfile(reading, read, want, y, thisYear) {
-  const rs = rangeStats(rangeKey); lastBuckets = rs.buckets;
+  const nowY = new Date().getFullYear();
+  const yrs = [...new Set([String(nowY), ...read.filter(b => isDate(b.finished) && b.finished <= today()).map(b => b.finished.slice(0, 4))])].sort().reverse();
+  if (chartYear && !yrs.includes(chartYear)) chartYear = '';
+  const yr = rangeKey === '12M' ? chartYear : '';
+  const rs = rangeStats(rangeKey, yr); lastBuckets = rs.buckets;
   const undated = read.filter(b => !isDate(b.finished)).length;
   const rangeAvg = rs.rated.length ? (rs.rated.reduce((a, b) => a + b.rating, 0) / rs.rated.length).toFixed(1) : '';
   const name = profile.name || 'Reader';
@@ -457,10 +445,9 @@ function renderProfile(reading, read, want, y, thisYear) {
       <button class="pill" id="edit-profile">Edit</button>
     </div>
     <div class="tiles">
-      <div class="tile"><b>${read.length}</b><span>Finished</span></div>
-      <div class="tile"><b>${thisYear}</b><span>${y}</span></div>
-      <div class="tile"><b>${reading.length}</b><span>Reading</span></div>
-      <div class="tile"><b>${want.length}</b><span>Wishlist</span></div>
+      <button class="tile" data-go="read"><b>${read.length}</b><span>Finished</span></button>
+      <button class="tile" data-go="reading"><b>${reading.length}</b><span>Reading</span></button>
+      <button class="tile" data-go="want"><b>${want.length}</b><span>Wishlist</span></button>
     </div>
     ${profile.goal ? `<div class="panel">
       <div class="goalrow"><span>${y} goal</span><b>${thisYear} / ${profile.goal}</b></div>
@@ -469,13 +456,13 @@ function renderProfile(reading, read, want, y, thisYear) {
     <div class="panel">
       <div class="panel-h">Books finished</div>
       <div class="seg">${Object.keys(RANGES).map(k => `<button data-r="${k}" class="${k === rangeKey ? 'on' : ''}">${k}</button>`).join('')}</div>
+      ${rangeKey === '12M' ? `<div class="frow cy"><select id="chart-year" aria-label="Year to show"><option value="">Last 12 months</option>${yrs.map(v => `<option value="${v}"${v === chartYear ? ' selected' : ''}>${v}</option>`).join('')}</select></div>` : ''}
       <div class="big">${rs.total}</div>
-      <div class="bigsub">${rs.total === 1 ? 'book' : 'books'} finished ${RANGES[rangeKey].name}</div>
-      <div class="range">${fmtMD(rs.from, rangeKey === '12M' || rangeKey === 'All')} – ${fmtMD(rs.to, rangeKey === '12M' || rangeKey === 'All')}</div>
+      <div class="bigsub">${rs.total === 1 ? 'book' : 'books'} finished ${yr ? 'in ' + yr : RANGES[rangeKey].name}</div>
+      <div class="range">${fmtMD(rs.from, rangeKey === '12M')} – ${fmtMD(rs.to, rangeKey === '12M')}</div>
       ${chartSVG(rs.buckets)}
       ${rs.total ? '<div class="foot hint">Tap a bar to see those books.</div>' : ''}
       ${rangeAvg ? `<div class="foot">Average rating in this period: <b>${rangeAvg} ★</b></div>` : ''}
-      ${rs.clipped ? '<div class="foot">Showing the latest 12 years.</div>' : ''}
       ${undated ? `<div class="foot">${undated} finished book${undated === 1 ? '' : 's'} without a finish date ${undated === 1 ? 'isn’t' : 'aren’t'} counted here.</div>` : ''}
     </div>`;
 }
@@ -779,9 +766,15 @@ $('list').onclick = e => {
   if (m) { e.stopPropagation(); confirmFinish(m.dataset.finish); return; }
   const c = e.target.closest('.book'); if (c) openEditor(books.find(b => b.id === c.dataset.id));
 };
+$('page-profile').onchange = e => {
+  if (e.target.id !== 'chart-year') return;
+  const v = e.target.value; chartYear = /^\d{4}$/.test(v) ? v : ''; render();
+};
 $('page-profile').onclick = e => {
   const r = e.target.closest('[data-r]');
   if (r && RANGES[r.dataset.r] && Object.prototype.hasOwnProperty.call(RANGES, r.dataset.r)) { rangeKey = r.dataset.r; render(); return; }
+  const go = e.target.closest('[data-go]');
+  if (go && ['reading', 'read', 'want'].includes(go.dataset.go)) { setPage(go.dataset.go); return; }
   const bar = e.target.closest('[data-b]');
   if (bar) {
     const bk = lastBuckets[+bar.dataset.b]; if (!bk || !bk.count) return;

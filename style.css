@@ -108,8 +108,8 @@ textarea{min-height:5.625rem;resize:vertical}
 .ptag{color:var(--dim);font-size:0.8438rem;margin-top:0.1875rem;line-height:1.35}
 .pill{flex:0 0 auto;background:var(--card2);color:var(--ink2);border:0;border-radius:62.4375rem;padding:0.5rem 0.875rem;
   font-weight:600;font-size:0.8125rem;font-family:inherit;cursor:pointer}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin-top:0.75rem}
-.tile{background:var(--card);border-radius:0.75rem;padding:0.75rem 0.25rem;text-align:center}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-top:0.75rem}
+.tile{display:block;width:100%;border:0;font:inherit;color:inherit;cursor:pointer;background:var(--card);border-radius:0.75rem;padding:0.75rem 0.25rem;text-align:center}
 .tile b{display:block;font-size:1.3125rem;letter-spacing:-.02em}
 .tile span{color:var(--dim);font-size:0.6875rem}
 .panel{background:var(--card);border-radius:1.125rem;padding:1rem;margin-top:0.75rem}
@@ -224,3 +224,8 @@ progress.goal::-moz-progress-bar{background:var(--accent);border-radius:0.3125re
 .accrow input[type=color]::-webkit-color-swatch{border:0;border-radius:.4rem}
 .accrow input[type=color]::-moz-color-swatch{border:0;border-radius:.4rem}
 .set-card + .set-card .row.flush{margin-top:.875rem}
+
+.tile:active{background:var(--card2)}
+.wide .tile:hover{background:var(--card2)}
+.frow.cy{margin:0 0 .875rem}
+.frow.cy select{background-color:var(--bg)}
