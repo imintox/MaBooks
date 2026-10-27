@@ -62,7 +62,7 @@ const idbAll = () => tx('readonly', s => s.getAll());
 const idbPut = b => tx('readwrite', s => s.put(b));
 const idbDel = id => tx('readwrite', s => s.delete(id));
 const idbReplace = list => tx('readwrite', s => { s.clear(); list.forEach(b => s.put(b)); });
-const mirror = () => { try { localStorage.setItem(MIRROR, JSON.stringify(books)); } catch (e) {} };
+const mirror = () => { try { localStorage.setItem(MIRROR, JSON.stringify(books.map(({cover, ...rest}) => rest))); } catch (e) {} };
 
 async function load() {
   try { books = await idbAll(); } catch (e) { books = []; }
@@ -72,6 +72,8 @@ async function load() {
       if (m.length) { books = m; await idbReplace(books); }
     } catch (e) {}
   }
+  books = books.filter(b => b && typeof b === 'object');
+  books.forEach(b => { b.cover = cleanCover(b.cover); });
 }
 async function save(b) {
   const i = books.findIndex(x => x.id === b.id);
@@ -79,6 +81,59 @@ async function save(b) {
   mirror(); await idbPut(b);
 }
 async function remove(id) { books = books.filter(b => b.id !== id); mirror(); await idbDel(id); }
+
+/* ---------- covers (saved on the phone) + optional Open Library search ---------- */
+const COVER_W = 240, COVER_H = 360;
+const cleanCover = c => (typeof c === 'string' && c.length < 200000 && /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(c)) ? c : '';
+
+// Shrinks any photo to a small JPEG thumbnail (about 15-30 KB). The original is never stored.
+function toThumb(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob), img = new Image();
+    img.onload = () => {
+      try {
+        const k = Math.min(COVER_W / img.naturalWidth, COVER_H / img.naturalHeight, 1);
+        const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h);
+        const out = c.toDataURL('image/jpeg', 0.72);
+        URL.revokeObjectURL(url);
+        cleanCover(out) ? res(out) : rej(new Error('bad thumbnail'));
+      } catch (e) { URL.revokeObjectURL(url); rej(e); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad image')); };
+    img.src = url;
+  });
+}
+
+const timedFetch = async (url, ms) => {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, {signal: ctl.signal, credentials: 'omit', referrerPolicy: 'no-referrer'}); }
+  finally { clearTimeout(t); }
+};
+
+// Only the search text is sent to Open Library. Results are plain data; nothing is kept online.
+async function searchBooks(q) {
+  q = q.trim(); if (!q) return [];
+  const digits = q.replace(/[\s-]/g, '');
+  const param = /^\d{9}[\dXx]$|^\d{13}$/.test(digits) ? `isbn=${digits}` : `q=${encodeURIComponent(q)}`;
+  const r = await timedFetch(`https://openlibrary.org/search.json?${param}&limit=10&fields=key,title,author_name,first_publish_year,cover_i`, 12000);
+  if (!r.ok) throw new Error('search failed');
+  const j = await r.json();
+  return (Array.isArray(j.docs) ? j.docs : []).slice(0, 10).map(d => ({
+    title: String(d.title || '').slice(0, 300),
+    author: Array.isArray(d.author_name) ? String(d.author_name[0] || '').slice(0, 300) : '',
+    year: Number.isInteger(+d.first_publish_year) ? +d.first_publish_year : 0,
+    cover: Number.isInteger(+d.cover_i) && +d.cover_i > 0 ? +d.cover_i : 0
+  })).filter(x => x.title);
+}
+async function fetchCover(id) {
+  const r = await timedFetch(`https://covers.openlibrary.org/b/id/${+id}-M.jpg?default=false`, 12000);
+  if (!r.ok) throw new Error('no cover');
+  const blob = await r.blob();
+  if (!/^image\//.test(blob.type) || blob.size > 3e6) throw new Error('bad cover');
+  return toThumb(blob);
+}
 
 /* ---------- stats for the profile page ---------- */
 const RANGES = {
@@ -184,10 +239,13 @@ function renderList(reading, read, want) {
 
   $('list').innerHTML = list.length ? list.map(b => `
     <div class="book" data-id="${esc(b.id)}">
-      <div class="t">${esc(b.title)}</div>
-      ${b.author ? `<div class="a">${esc(b.author)}</div>` : ''}
-      ${meta(b)}
-      ${page !== 'want' && b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
+      ${b.cover ? `<img class="cov" src="${esc(b.cover)}" alt="">` : ''}
+      <div class="bk">
+        <div class="t">${esc(b.title)}</div>
+        ${b.author ? `<div class="a">${esc(b.author)}</div>` : ''}
+        ${meta(b)}
+        ${page !== 'want' && b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
+      </div>
     </div>`).join('')
     : `<div class="empty">${q ? 'No matches.' : empty}</div>`;
 }
@@ -274,7 +332,7 @@ scrim.onclick = closeSheet;
 function openEditor(b, forceStatus) {
   const isNew = !b;
   const startStatus = ['reading', 'read', 'want'].includes(page) ? page : 'reading';
-  b = b ? {...b} : {id: uid(), title:'', author:'', status: startStatus, rating:0, started:'', finished:'', notes:'', added: Date.now()};
+  b = b ? {...b} : {id: uid(), title:'', author:'', status: startStatus, rating:0, started:'', finished:'', notes:'', cover:'', added: Date.now()};
   b.started = b.started || '';
   const setStatus = s => {
     b.status = s;
@@ -291,6 +349,15 @@ function openEditor(b, forceStatus) {
         <button data-s="reading" class="${s === 'reading' ? 'on' : ''}">Reading</button>
         <button data-s="read" class="${s === 'read' ? 'on' : ''}">Finished</button>
         <button data-s="want" class="${s === 'want' ? 'on' : ''}">Wishlist</button>
+      </div>
+      <div class="coverrow">
+        ${b.cover ? `<img class="cov big" src="${esc(b.cover)}" alt="Cover">` : '<div class="cov big ph">No cover</div>'}
+        <div class="covbtns">
+          <button class="btn ghost" id="cov-pick">${b.cover ? 'Change photo' : 'Add cover photo'}</button>
+          ${b.cover ? '<button class="btn ghost" id="cov-del">Remove photo</button>' : ''}
+          <button class="btn ghost" id="find-go">Find book online</button>
+        </div>
+        <input type="file" id="f-cover" accept="image/*" hidden>
       </div>
       <label>Title</label><input type="text" id="f-title" value="${esc(b.title)}" autocomplete="off" autocapitalize="words">
       <label>Author</label><input type="text" id="f-author" value="${esc(b.author)}" autocomplete="off" autocapitalize="words">
@@ -309,6 +376,15 @@ function openEditor(b, forceStatus) {
     if (st) st.onclick = e => { const n = +e.target.dataset.n; if (!n) return; b.rating = b.rating === n ? 0 : n;
       st.querySelectorAll('span').forEach(s => s.classList.toggle('on', +s.dataset.n <= b.rating)); };
     $('cancel').onclick = closeSheet;
+    $('cov-pick').onclick = () => $('f-cover').click();
+    $('f-cover').onchange = async () => {
+      const f = $('f-cover').files && $('f-cover').files[0]; if (!f) return;
+      grab(); $('cov-pick').textContent = 'Saving…';
+      try { b.cover = await toThumb(f); } catch (e) { alert('Couldn’t use that photo. Try a different one.'); }
+      draw();
+    };
+    const cd = $('cov-del'); if (cd) cd.onclick = () => { grab(); b.cover = ''; draw(); };
+    $('find-go').onclick = () => { grab(); openFind(); };
     $('ok').onclick = async () => {
       grab();
       if (!b.title.trim()) { $('f-title').focus(); $('f-title').style.borderColor = 'var(--danger)'; return; }
@@ -326,6 +402,39 @@ function openEditor(b, forceStatus) {
     if (g('f-start') !== undefined) b.started = g('f-start');
     if (g('f-date') !== undefined) b.finished = g('f-date');
     if (g('f-notes') !== undefined) b.notes = g('f-notes').trim();
+  };
+  const openFind = () => {
+    let results = [];
+    openSheet(`
+      <h2>Find a book</h2>
+      <p class="ask">Type a title, author or ISBN. Only what you type is sent to Open Library. The book you pick is saved on your phone, so it never needs the internet again.</p>
+      <div class="findrow"><input type="text" id="fq" placeholder="Title, author or ISBN" autocomplete="off" enterkeyhint="search"><button class="btn" id="fgo">Search</button></div>
+      <div class="fres" id="fres"></div>
+      <div class="row"><button class="btn ghost" id="fback">Back</button></div>`);
+    const fres = $('fres');
+    const go = async () => {
+      const q = $('fq').value.trim(); if (!q) return;
+      fres.innerHTML = '<div class="empty small">Searching…</div>';
+      try {
+        results = await searchBooks(q);
+        fres.innerHTML = results.length
+          ? results.map((r, i) => `<button class="res" data-i="${i}"><b>${esc(r.title)}</b><span>${esc(r.author)}${r.year ? ' · ' + r.year : ''}</span></button>`).join('')
+          : '<div class="empty small">No matches. Try different spelling or the ISBN.</div>';
+      } catch (e) {
+        fres.innerHTML = '<div class="empty small">Couldn’t reach Open Library. You can still type the book in by hand.</div>';
+      }
+    };
+    $('fgo').onclick = go;
+    $('fq').onkeydown = e => { if (e.key === 'Enter') go(); };
+    $('fback').onclick = () => draw();
+    fres.onclick = async e => {
+      const it = e.target.closest('[data-i]'); if (!it) return;
+      const r = results[+it.dataset.i]; if (!r) return;
+      fres.innerHTML = '<div class="empty small">Adding…</div>';
+      b.title = r.title; b.author = r.author;
+      if (r.cover) { try { b.cover = await fetchCover(r.cover); } catch (err) { /* no cover is fine */ } }
+      draw();
+    };
   };
   draw();
 }
@@ -377,6 +486,7 @@ function importBackup() {
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json';
   inp.onchange = async () => {
     try {
+      if (inp.files[0].size > 60e6) throw 0;
       const j = JSON.parse(await inp.files[0].text());
       const list = Array.isArray(j) ? j : j.books;
       if (!Array.isArray(list)) throw 0;
@@ -386,7 +496,7 @@ function importBackup() {
         id: /^[A-Za-z0-9_-]{1,40}$/.test(String(b.id)) ? String(b.id) : uid(),
         title: String(b.title).slice(0, 300), author: String(b.author || '').slice(0, 300),
         status: ['want', 'reading'].includes(b.status) ? b.status : 'read', rating: Math.min(5, Math.max(0, Math.round(+b.rating) || 0)),
-        started: isDate(b.started) ? String(b.started) : '', finished: isDate(b.finished) ? String(b.finished) : '', notes: String(b.notes || '').slice(0, 5000), added: okAdded(b.added)}));
+        started: isDate(b.started) ? String(b.started) : '', finished: isDate(b.finished) ? String(b.finished) : '', notes: String(b.notes || '').slice(0, 5000), added: okAdded(b.added), cover: cleanCover(b.cover)}));
       const ids = new Set(books.map(b => b.id));
       const fresh = clean.filter(b => !ids.has(b.id) && ids.add(b.id));
       if (!confirm(`Add ${fresh.length} new book${fresh.length === 1 ? '' : 's'} from this backup? Your current books are kept.`)) return;
@@ -404,13 +514,16 @@ async function openSettings() {
   let persisted = false;
   try { persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false; } catch (e) {}
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const nCov = books.filter(b => b.cover).length;
+  const covMB = (books.reduce((a, b) => a + (b.cover ? b.cover.length * 0.75 : 0), 0) / 1048576).toFixed(1);
   openSheet(`
     <h2>Backup &amp; safety</h2>
     <div class="set-card">
-      <p>${books.length} book${books.length === 1 ? '' : 's'} saved on this device.<br>
+      <p>${books.length} book${books.length === 1 ? '' : 's'} saved on this device.${nCov ? `<br>${nCov} cover${nCov === 1 ? '' : 's'} · about ${covMB} MB` : ''}<br>
       Last backup: ${last ? new Date(last).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}) : 'never'}</p>
       <p>Saves a file you can keep in iCloud Drive, Files, or email to yourself. This is what protects you if the phone is lost or reset.</p>
       <div class="row flush"><button class="btn" id="exp">Save backup</button><button class="btn ghost" id="imp">Restore</button></div>
+      ${nCov ? '<div class="row"><button class="btn ghost" id="cov-clear">Remove all covers</button></div>' : ''}
     </div>
     <div class="set-card">
       <p>${standalone ? '<span class="ok">✓</span> Installed on Home Screen — iOS protects its storage from the 7-day clean-up.' : 'Add MaBooks to your Home Screen so it opens like a real app and iOS keeps your data safe.'}<br>
@@ -427,6 +540,13 @@ async function openSettings() {
     </div>
     <div class="row"><button class="btn ghost" id="close">Done</button></div>`);
   $('exp').onclick = exportBackup; $('imp').onclick = importBackup; $('close').onclick = closeSheet;
+  const cc = $('cov-clear');
+  if (cc) cc.onclick = async () => {
+    if (!confirm('Remove all cover pictures? Titles, authors, dates and notes stay.')) return;
+    books.forEach(b => { b.cover = ''; }); mirror();
+    try { await idbReplace(books); } catch (e) {}
+    render(); openSettings();
+  };
   const a2 = $('a2hs');
   if (a2) a2.onclick = async () => {
     if (deferredPrompt) {            // Android / desktop Chrome: real install prompt

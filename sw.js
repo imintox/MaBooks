@@ -1,4 +1,4 @@
-const CACHE = 'mabooks-v7';
+const CACHE = 'mabooks-v8';
 const FILES = ['./', './index.html', './manifest.webmanifest', './style.css', './app.js', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -8,7 +8,7 @@ self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
+  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
       const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r;

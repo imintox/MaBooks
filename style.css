@@ -22,7 +22,9 @@ h1{font-size:30px;font-weight:700;letter-spacing:-.02em;margin:0}
 .search{width:100%;background:var(--card);border:0;color:var(--text);border-radius:12px;padding:11px 14px;font-size:16px;margin-bottom:14px;outline:none}
 .search::placeholder{color:var(--dim)}
 .list{display:flex;flex-direction:column;gap:10px}
-.book{background:var(--card);border-radius:14px;padding:14px 16px;cursor:pointer;border:1px solid transparent}
+.book{display:flex;gap:14px;align-items:flex-start;background:var(--card);border-radius:14px;padding:14px 16px;cursor:pointer;border:1px solid transparent}
+.bk{flex:1;min-width:0}
+.cov{flex:0 0 auto;width:52px;height:78px;object-fit:cover;border-radius:6px;background:var(--bg)}
 .book:active{background:var(--card2)}
 .book .t{font-size:17px;font-weight:600;letter-spacing:-.01em}
 .book .a{color:var(--dim);font-size:14px;margin-top:2px}
@@ -133,3 +135,16 @@ progress.goal::-moz-progress-bar{background:var(--accent);border-radius:5px}
 
 .ask{color:var(--dim);font-size:15px;line-height:1.5;margin:0 0 4px}
 .ask b{color:var(--text)}
+
+.coverrow{display:flex;gap:14px;align-items:flex-start;margin-top:16px}
+.cov.big{width:78px;height:117px;border-radius:8px}
+.cov.ph{display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);color:var(--dim);font-size:11px;text-align:center}
+.covbtns{flex:1;display:flex;flex-direction:column;gap:8px}
+.covbtns .btn{flex:none;padding:10px;font-size:14px}
+.findrow{display:flex;gap:8px}
+.findrow input{flex:1;min-width:0}
+.findrow .btn{flex:0 0 auto;padding:12px 16px}
+.fres{margin-top:6px;max-height:42dvh;overflow:auto}
+.res{display:block;width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;margin-top:8px;font-family:inherit;font-size:15px;cursor:pointer}
+.res span{display:block;color:var(--dim);font-size:13px;margin-top:2px}
+.empty.small{padding:24px 10px;font-size:14px}
