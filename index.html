@@ -19,21 +19,42 @@
 <div id="app">
   <header>
     <div>
-      <h1>MaBooks</h1>
+      <div class="brand">MaBooks</div>
+      <h1 id="title">Reading</h1>
       <div class="sub" id="stats"></div>
     </div>
     <button class="icon-btn" id="gear" aria-label="Backup and settings">⚙︎</button>
   </header>
   <div id="nudge"></div>
-  <div class="seg">
-    <button id="tab-read" class="on">Read<span class="n" id="n-read"></span></button>
-    <button id="tab-want">Want to read<span class="n" id="n-want"></span></button>
+
+  <div id="page-list">
+    <input class="search" id="q" type="search" placeholder="Search" autocomplete="off">
+    <div class="list" id="list"></div>
   </div>
-  <input class="search" id="q" type="search" placeholder="Search" autocomplete="off">
-  <div class="list" id="list"></div>
+  <div id="page-profile" hidden></div>
 </div>
 
 <button class="fab" id="fab" aria-label="Add book">+</button>
+
+<nav class="tabbar" id="tabbar">
+  <button data-page="reading" class="on" aria-label="Reading">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 8 4.5 4 4.5v13c4 0 6.5.5 8 2 1.5-1.5 4-2 8-2v-13c-4 0-6.5.5-8 2z"/><path d="M12 6.5v13"/></svg>
+    <span>Reading</span>
+  </button>
+  <button data-page="read" aria-label="Finished">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/></svg>
+    <span>Finished</span>
+  </button>
+  <button data-page="want" aria-label="Wishlist">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>
+    <span>Wishlist</span>
+  </button>
+  <button data-page="profile" aria-label="Profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    <span>Profile</span>
+  </button>
+</nav>
+
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet"></div>
 
