@@ -130,3 +130,6 @@ progress.goal::-moz-progress-bar{background:var(--accent);border-radius:5px}
 .sw.on{outline-color:var(--text)}
 .sw.pink{background:#ff5fae}.sw.violet{background:#a78bfa}.sw.blue{background:#4da3ff}
 .sw.mint{background:#34d399}.sw.amber{background:#ffb347}.sw.red{background:#ff5a6a}
+
+.ask{color:var(--dim);font-size:15px;line-height:1.5;margin:0 0 4px}
+.ask b{color:var(--text)}

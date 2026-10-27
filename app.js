@@ -173,7 +173,7 @@ function renderList(reading, read, want) {
         ${b.finished ? `<span>${fmtDate(b.finished)}</span>` : ''}</div>`
     : page === 'reading'
       ? `<div class="m"><span>${isDate(b.started) ? `Started ${fmtDate(b.started)} · day ${dayN(b.started)}` : `Added ${fmtDate(ymd(new Date(b.added)))}`}</span>
-          <button class="mark" data-finish="${esc(b.id)}">Finished</button></div>`
+          <button class="mark" data-finish="${esc(b.id)}">Finish</button></div>`
       : `<div class="m"><span>Added ${fmtDate(ymd(new Date(b.added)))}</span>
           <button class="mark" data-start="${esc(b.id)}">Start reading</button></div>`;
   const empty = {
@@ -190,6 +190,21 @@ function renderList(reading, read, want) {
       ${page !== 'want' && b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
     </div>`).join('')
     : `<div class="empty">${q ? 'No matches.' : empty}</div>`;
+}
+
+function confirmFinish(id) {
+  const b = books.find(x => x.id === id); if (!b) return;
+  openSheet(`
+    <h2>Finish this book?</h2>
+    <p class="ask"><b>${esc(b.title)}</b> will be marked as finished today, ${esc(fmtDate(today()))}.</p>
+    <div class="row"><button class="btn ghost" id="fin-no">Not yet</button><button class="btn" id="fin-yes">Finish book</button></div>`);
+  $('fin-no').onclick = closeSheet;
+  const yes = $('fin-yes');
+  yes.onclick = async () => {
+    yes.onclick = null;                       // ignore double taps
+    b.status = 'read'; b.finished = today(); b.rating = b.rating || 0;
+    await save(b); closeSheet(); setPage('read');
+  };
 }
 
 async function startReading(id) {
@@ -279,12 +294,11 @@ function openEditor(b, forceStatus) {
       </div>
       <label>Title</label><input type="text" id="f-title" value="${esc(b.title)}" autocomplete="off" autocapitalize="words">
       <label>Author</label><input type="text" id="f-author" value="${esc(b.author)}" autocomplete="off" autocapitalize="words">
-      ${s !== 'want' ? `<label>Date started <span class="opt">optional</span></label><input type="date" id="f-start" value="${esc(b.started)}">` : ''}
       ${s === 'read' ? `
         <label>Date finished</label><input type="date" id="f-date" value="${esc(b.finished)}">
         <label>Rating</label>
         <div class="starpick" id="stars">${[1,2,3,4,5].map(n => `<span data-n="${n}" class="${n <= b.rating ? 'on' : ''}">★</span>`).join('')}</div>` : ''}
-      ${s !== 'want' ? `<label>Notes</label><textarea id="f-notes">${esc(b.notes)}</textarea>` : ''}
+      ${s === 'read' ? `<label>Notes</label><textarea id="f-notes">${esc(b.notes)}</textarea>` : ''}
       <div class="row">
         ${isNew ? '' : '<button class="btn danger" id="del">Delete</button>'}
         <button class="btn ghost" id="cancel">Cancel</button>
@@ -438,7 +452,7 @@ $('list').onclick = e => {
   const st = e.target.closest('[data-start]');
   if (st) { e.stopPropagation(); startReading(st.dataset.start); return; }
   const m = e.target.closest('[data-finish]');
-  if (m) { e.stopPropagation(); openEditor(books.find(b => b.id === m.dataset.finish), 'read'); return; }
+  if (m) { e.stopPropagation(); confirmFinish(m.dataset.finish); return; }
   const c = e.target.closest('.book'); if (c) openEditor(books.find(b => b.id === c.dataset.id));
 };
 $('page-profile').onclick = e => {
