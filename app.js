@@ -1,6 +1,8 @@
 (() => {
 'use strict';
 const DB = 'shelf', STORE = 'books', MIRROR = 'shelf-mirror', LASTBK = 'shelf-last-backup', PROFILE_KEY = 'mabooks-profile';
+const PAGE_N = 30;
+let shown = PAGE_N, curList = [], cardHTML = null, io = null;
 let books = [], page = 'reading', query = '', fYear = '', fMonth = '', fRange = null, lastBuckets = [], rangeKey = '6M', deferredPrompt = null;
 
 const $ = id => document.getElementById(id);
@@ -44,7 +46,7 @@ function confetti() {
     const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
     const u = (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) / 16;   // keeps pieces the same size on screen
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); g.scale(dpr, dpr);
-    const [a, b] = COLORS[profile.color] || COLORS.pink;
+    const [a, b] = effColors(profile);
     const pal = [a, b, '#ffffff', a, b, '#ffd9ec'];
     const ps = [], rnd = (lo, hi) => lo + Math.random() * (hi - lo);
     for (let i = 0; i < 150; i++) {
@@ -85,6 +87,7 @@ const COLORS = {
 };
 const COLOR_KEYS = Object.keys(COLORS);
 const EMOJIS = ['📚', '🦉', '🐈', '🌙', '🔥', '🌸', '🧠', '☕', '🐉', '🪐', '🦋', '👻'];
+const HEX = /^#[0-9a-fA-F]{6}$/;
 const cleanProfile = p => {
   p = p && typeof p === 'object' ? p : {};
   return {
@@ -92,19 +95,43 @@ const cleanProfile = p => {
     emoji: EMOJIS.includes(p.emoji) ? p.emoji : EMOJIS[0],
     color: COLOR_KEYS.includes(p.color) ? p.color : 'pink',
     tagline: String(p.tagline || '').slice(0, 80),
-    goal: Math.min(999, Math.max(0, Math.round(+p.goal) || 0))
+    goal: Math.min(999, Math.max(0, Math.round(+p.goal) || 0)),
+    accent: typeof p.accent === 'string' && HEX.test(p.accent) ? p.accent.toLowerCase() : '',     // optional custom colors (override the preset)
+    accent2: typeof p.accent2 === 'string' && HEX.test(p.accent2) ? p.accent2.toLowerCase() : ''
   };
 };
 let profile = cleanProfile({});
 const isDefaultProfile = p => JSON.stringify(p) === JSON.stringify(cleanProfile({}));
 const loadProfile = () => { try { profile = cleanProfile(JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}')); } catch (e) { profile = cleanProfile({}); } };
 const saveProfile = () => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {} };
-function applyTheme(key) {
-  const [a, b] = COLOR_KEYS.includes(key) ? COLORS[key] : COLORS.pink;
-  const n = parseInt(a.slice(1), 16), rgb = `${n >> 16 & 255},${n >> 8 & 255},${n & 255}`;
-  const r = document.documentElement.style;
-  r.setProperty('--accent', a); r.setProperty('--accent2', b);
-  r.setProperty('--glow', `rgba(${rgb},.38)`); r.setProperty('--tint', `rgba(${rgb},.15)`);
+const MODE_KEY = 'mabooks-mode';
+let mode = 'auto';                                   // auto follows the phone's light/dark setting
+const loadMode = () => { try { const m = localStorage.getItem(MODE_KEY); mode = ['auto', 'dark', 'light'].includes(m) ? m : 'auto'; } catch (e) { mode = 'auto'; } };
+const saveMode = () => { try { localStorage.setItem(MODE_KEY, mode); } catch (e) {} };
+const isLight = () => mode === 'light' || (mode === 'auto' && !!(window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches));
+const effColors = p => { const base = COLORS[p.color] || COLORS.pink; return [p.accent || base[0], p.accent2 || base[1]]; };
+const rgbOf = h => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const hexOf = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+const contrast = (x, y) => { const p = lum(x), q = lum(y); return (Math.max(p, q) + 0.05) / (Math.min(p, q) + 0.05); };
+// a readable text version of an accent: darkened on light backgrounds, lightened on dark ones
+function inkFor(hex, light) {
+  let c = rgbOf(hex), k = 0;
+  const bg = light ? [255, 255, 255] : [20, 16, 22];
+  while (contrast(c, bg) < 4.5 && k++ < 25) c = light ? c.map(v => v * 0.92) : c.map(v => v + (255 - v) * 0.1);
+  return hexOf(c);
+}
+function applyTheme(p) {
+  p = p || profile;
+  const root = document.documentElement, light = isLight(), st = root.style;
+  root.dataset.mode = mode; root.classList.toggle('light', light);
+  const [a, b] = effColors(p), [r, g, bl] = rgbOf(a);
+  const onA = contrast(rgbOf(a), [26, 5, 18]) >= contrast(rgbOf(a), [255, 255, 255]) ? '#1a0512' : '#ffffff';
+  st.setProperty('--accent', a); st.setProperty('--accent2', b);
+  st.setProperty('--ink', inkFor(a, light)); st.setProperty('--ink2', inkFor(b, light)); st.setProperty('--on-accent', onA);
+  st.setProperty('--glow', `rgba(${r},${g},${bl},.38)`); st.setProperty('--tint', `rgba(${r},${g},${bl},${light ? '.13' : '.15'})`);
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim() || '#08060a');
 }
 
 /* ---------- storage: IndexedDB primary + localStorage mirror ---------- */
@@ -218,7 +245,7 @@ function rangeStats(key) {
   const now = new Date(); now.setHours(12, 0, 0, 0);
   const to = ymd(now);
   const done = books.filter(b => b.status === 'read' && isDate(b.finished));
-  const buckets = [];
+  const buckets = []; let clipped = false;
   if (key === '1M') {                       // last 30 days in six 5-day bars
     const start = new Date(now); start.setDate(start.getDate() - 29);
     for (let i = 0; i < 6; i++) {
@@ -226,20 +253,25 @@ function rangeStats(key) {
       const e = new Date(s); e.setDate(e.getDate() + 4);
       buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, label: `${s.getMonth() + 1}/${s.getDate()}`});
     }
-  } else if (key === 'All') {               // from your first finished book: monthly bars, or yearly once it spans more than 2 years
-    const first = done.length ? done.map(b => b.finished).sort()[0] : to;
+  } else if (key === 'All') {               // from your first finished book: monthly bars for up to 2 years, then one bar per year
+    const past = done.filter(b => b.finished <= to).map(b => b.finished).sort();
+    const first = past.length ? past[0] : to, curY = now.getFullYear();
     const fy = +first.slice(0, 4), fm = +first.slice(5, 7) - 1;
-    const months = (now.getFullYear() - fy) * 12 + now.getMonth() - fm + 1;
+    const months = (curY - fy) * 12 + now.getMonth() - fm + 1;
     if (months > 24) {
-      for (let y = fy; y <= now.getFullYear(); y++) {
+      const y0 = Math.max(fy, curY - 11);   // at most the latest 12 years, so bars stay readable
+      clipped = y0 > fy;
+      const nY = curY - y0 + 1;
+      for (let y = y0; y <= curY; y++) {
         const hi = `${y}-12-31`;
-        buckets.push({lo: `${y}-01-01`, hi: hi < to ? hi : to, label: String(y), y: String(y)});
+        buckets.push({lo: `${y}-01-01`, hi: hi < to ? hi : to, label: nY > 8 ? '’' + String(y).slice(2) : String(y), y: String(y)});
       }
     } else {
       for (let i = 0; i < Math.max(1, months); i++) {
         const s = new Date(fy, fm + i, 1, 12), e = new Date(s.getFullYear(), s.getMonth() + 1, 0, 12);
         buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, y: String(s.getFullYear()), m: s.getMonth(),
-          label: months > 12 ? (s.getMonth() === 0 ? String(s.getFullYear()) : '') : s.toLocaleDateString(undefined, {month:'short'})});
+          label: months <= 12 || s.getMonth() % 2 === 0 ? s.toLocaleDateString(undefined, {month:'short'}) : '',
+          sub: i === 0 || s.getMonth() === 0 ? String(s.getFullYear()) : ''});
       }
     }
   } else {                                  // last N calendar months, one bar each
@@ -247,17 +279,18 @@ function rangeStats(key) {
     for (let i = n - 1; i >= 0; i--) {
       const s = new Date(now.getFullYear(), now.getMonth() - i, 1, 12);
       const e = new Date(s.getFullYear(), s.getMonth() + 1, 0, 12);
-      buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, y: String(s.getFullYear()), m: s.getMonth(), label: s.toLocaleDateString(undefined, {month:'short'})});
+      buckets.push({lo: ymd(s), hi: ymd(e) < to ? ymd(e) : to, y: String(s.getFullYear()), m: s.getMonth(), label: s.toLocaleDateString(undefined, {month:'short'}),
+        sub: i === n - 1 || s.getMonth() === 0 ? String(s.getFullYear()) : ''});
     }
   }
   const from = buckets[0].lo;
   buckets.forEach(b => { b.count = done.filter(x => x.finished >= b.lo && x.finished <= b.hi).length; });
   const inRange = done.filter(x => x.finished >= from && x.finished <= to);
-  return {from, to, buckets, total: inRange.length, rated: inRange.filter(x => x.rating > 0)};
+  return {from, to, buckets, clipped, total: inRange.length, rated: inRange.filter(x => x.rating > 0)};
 }
 
 function chartSVG(buckets) {
-  const W = 320, H = 168, top = 22, base = 138, plotH = base - top;
+  const W = 320, H = 180, top = 22, base = 138, plotH = base - top;
   const max = Math.max(1, ...buckets.map(b => b.count));
   const n = buckets.length, slot = (W - 20) / n, bw = Math.min(34, slot * 0.58);
   let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Books finished per period">
@@ -271,7 +304,8 @@ function chartSVG(buckets) {
     } else {
       s += `<rect class="bar0" x="${(cx - bw / 2).toFixed(1)}" y="${base - 2}" width="${bw.toFixed(1)}" height="2" rx="1"/>`;
     }
-    s += `<text class="lab" x="${cx.toFixed(1)}" y="${H - 12}">${esc(b.label)}</text>`;
+    s += `<text class="lab" x="${cx.toFixed(1)}" y="${base + 16}">${esc(b.label)}</text>`;
+    if (b.sub) s += `<text class="yr" x="${cx.toFixed(1)}" y="${base + 28}">${esc(b.sub)}</text>`;
     if (b.count) s += `<rect class="hit" data-b="${i}" x="${(10 + slot * i).toFixed(1)}" y="${top - 14}" width="${slot.toFixed(1)}" height="${H - top + 14}"/>`;
   });
   return s + '</svg>';
@@ -356,7 +390,7 @@ function renderList(reading, read, want) {
     want: 'Your wishlist is empty.<br>Tap + to add a book you want to read.'
   }[page];
 
-  $('list').innerHTML = list.length ? list.map(b => `
+  cardHTML = b => `
     <div class="book" data-id="${esc(b.id)}">
       ${b.cover ? `<img class="cov" src="${esc(b.cover)}" alt="" loading="lazy" decoding="async">` : ''}
       <div class="bk">
@@ -365,8 +399,27 @@ function renderList(reading, read, want) {
         ${meta(b)}
         ${page !== 'want' && b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       </div>
-    </div>`).join('')
+    </div>`;
+  curList = list;
+  const more = () => curList.length > shown ? '<button class="more" id="more">Loading more…</button>' : '';
+  $('list').innerHTML = list.length ? list.slice(0, shown).map(cardHTML).join('') + more()
     : `<div class="empty">${(q || filtering) ? 'No matches.' : empty}</div>`;
+  watchMore();
+}
+// lists load 30 at a time as you scroll (the button is the fallback if the browser can't watch scrolling)
+function loadMore() {
+  const m = $('more'); if (!m || !cardHTML) return;
+  const from = shown; shown += PAGE_N;
+  m.insertAdjacentHTML('beforebegin', curList.slice(from, shown).map(cardHTML).join(''));
+  if (curList.length <= shown) { m.remove(); if (io) io.disconnect(); }
+}
+function watchMore() {
+  if (io) io.disconnect();
+  const m = $('more'); if (!m) return;
+  if ('IntersectionObserver' in window) {
+    if (!io) io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) loadMore(); }, {rootMargin: '600px 0px'});
+    io.observe(m);
+  } else m.textContent = 'Show more';
 }
 
 function confirmFinish(id) {
@@ -422,6 +475,7 @@ function renderProfile(reading, read, want, y, thisYear) {
       ${chartSVG(rs.buckets)}
       ${rs.total ? '<div class="foot hint">Tap a bar to see those books.</div>' : ''}
       ${rangeAvg ? `<div class="foot">Average rating in this period: <b>${rangeAvg} ★</b></div>` : ''}
+      ${rs.clipped ? '<div class="foot">Showing the latest 12 years.</div>' : ''}
       ${undated ? `<div class="foot">${undated} finished book${undated === 1 ? '' : 's'} without a finish date ${undated === 1 ? 'isn’t' : 'aren’t'} counted here.</div>` : ''}
     </div>`;
 }
@@ -435,7 +489,7 @@ function renderNudge() {
 }
 
 function setPage(p) {
-  page = p; query = ''; fYear = ''; fMonth = ''; fRange = null; $('q').value = '';
+  page = p; query = ''; fYear = ''; fMonth = ''; fRange = null; shown = PAGE_N; $('q').value = '';
   render(); window.scrollTo(0, 0);
 }
 
@@ -444,7 +498,7 @@ const sheet = $('sheet'), scrim = $('scrim');
 const openSheet = html => { sheet.innerHTML = html; scrim.classList.add('show'); sheet.classList.add('show'); };
 const closeSheet = () => {
   scrim.classList.remove('show'); sheet.classList.remove('show');
-  applyTheme(profile.color);                 // undo any unsaved color preview
+  applyTheme(profile);                       // undo any unsaved color preview
   document.activeElement && document.activeElement.blur();
 };
 scrim.onclick = closeSheet;
@@ -572,14 +626,14 @@ function openProfileEditor() {
     <label>Avatar</label>
     <div class="emos">${EMOJIS.map(e => `<button class="emo ${e === d.emoji ? 'on' : ''}" data-e="${e}">${e}</button>`).join('')}</div>
     <label>Accent color</label>
-    <div class="sws">${COLOR_KEYS.map(k => `<button class="sw ${k} ${k === d.color ? 'on' : ''}" data-c="${k}" aria-label="${k}"></button>`).join('')}</div>
+    <div class="sws">${COLOR_KEYS.map(k => `<button class="sw ${k} ${k === d.color && !d.accent ? 'on' : ''}" data-c="${k}" aria-label="${k}"></button>`).join('')}</div>
     <label>Yearly reading goal <span class="opt">optional</span></label>
     <input type="text" id="p-goal" inputmode="numeric" maxlength="3" value="${d.goal || ''}" placeholder="e.g. 24" autocomplete="off">
     <div class="row"><button class="btn ghost" id="p-cancel">Cancel</button><button class="btn" id="p-save">Save</button></div>`);
   sheet.querySelectorAll('[data-e]').forEach(el => el.onclick = () => {
     d.emoji = el.dataset.e; sheet.querySelectorAll('[data-e]').forEach(x => x.classList.toggle('on', x === el)); });
   sheet.querySelectorAll('[data-c]').forEach(el => el.onclick = () => {
-    d.color = el.dataset.c; applyTheme(d.color); sheet.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === el)); });
+    d.color = el.dataset.c; d.accent = ''; d.accent2 = ''; applyTheme(d); sheet.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === el)); });
   $('p-cancel').onclick = closeSheet;
   $('p-save').onclick = () => {
     d.name = $('p-name').value.trim(); d.tagline = $('p-tag').value.trim(); d.goal = $('p-goal').value.replace(/\D/g, '');
@@ -623,7 +677,7 @@ function importBackup() {
       if (!confirm(`Add ${fresh.length} new book${fresh.length === 1 ? '' : 's'} from this backup? Your current books are kept.`)) return;
       for (const b of fresh) books.push(b);
       if (!Array.isArray(j) && j.profile && isDefaultProfile(profile)) {   // fresh install: bring the profile back too
-        profile = cleanProfile(j.profile); saveProfile(); applyTheme(profile.color);
+        profile = cleanProfile(j.profile); saveProfile(); applyTheme(profile);
       }
       mirror(); await idbReplace(books); render(); openSettings();
     } catch (e) { alert('That file doesn’t look like a MaBooks backup.'); }
@@ -647,6 +701,14 @@ async function openSettings() {
       ${nCov ? '<div class="row"><button class="btn ghost" id="cov-clear">Remove all covers</button></div>' : ''}
     </div>
     <div class="set-card">
+      <p class="h">Appearance</p>
+      <div class="seg flush" id="mode-seg">${[['auto', 'Auto'], ['dark', 'Dark'], ['light', 'Light']].map(([k, n]) => `<button data-m="${k}" class="${mode === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <p class="small">Auto follows your iPhone’s light or dark setting.</p>
+      <div class="accrow"><span>Main color<small>buttons, tabs, chart</small></span><input type="color" id="acc1" value="${effColors(profile)[0]}" aria-label="Main color"></div>
+      <div class="accrow"><span>Highlight color<small>numbers, stars, chart tops</small></span><input type="color" id="acc2" value="${effColors(profile)[1]}" aria-label="Highlight color"></div>
+      <div class="row flush"><button class="btn ghost" id="acc-reset">Reset colors</button></div>
+    </div>
+    <div class="set-card">
       <p>${standalone ? '<span class="ok">✓</span> Installed on Home Screen — iOS protects its storage from the 7-day clean-up.' : 'Add MaBooks to your Home Screen so it opens like a real app and iOS keeps your data safe.'}<br>
       ${persisted ? '<span class="ok">✓</span> Persistent storage granted.' : ''}</p>
       ${standalone ? '' : `<button class="btn" id="a2hs">Add to Home Screen</button>
@@ -662,6 +724,16 @@ async function openSettings() {
     </div>
     <div class="row"><button class="btn ghost" id="close">Done</button></div>`);
   $('exp').onclick = exportBackup; $('imp').onclick = importBackup; $('close').onclick = closeSheet;
+  sheet.querySelectorAll('[data-m]').forEach(el => el.onclick = () => {
+    mode = el.dataset.m; saveMode(); applyTheme(profile);
+    sheet.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === el));
+  });
+  ['acc1', 'acc2'].forEach(id => { $(id).oninput = () => {
+    const [a, b] = effColors(profile), v = $(id).value;
+    profile = cleanProfile({...profile, accent: id === 'acc1' ? v : a, accent2: id === 'acc2' ? v : b});
+    saveProfile(); applyTheme(profile);
+  }; });
+  $('acc-reset').onclick = () => { profile = cleanProfile({...profile, accent: '', accent2: ''}); saveProfile(); applyTheme(profile); openSettings(); };
   const cc = $('cov-clear');
   if (cc) cc.onclick = async () => {
     if (!confirm('Remove all cover pictures? Titles, authors, dates and notes stay.')) return;
@@ -687,19 +759,20 @@ window.addEventListener('appinstalled', () => { deferredPrompt = null; });
 
 /* ---------- wire up ---------- */
 $('tabbar').onclick = e => { const t = e.target.closest('[data-page]'); if (t) setPage(t.dataset.page); };
-$('q').oninput = e => { query = e.target.value; render(); };
+$('q').oninput = e => { query = e.target.value; shown = PAGE_N; render(); };
 $('filters').onchange = e => {
   const v = e.target.value;
   if (e.target.id === 'f-year') fYear = /^\d{4}$/.test(v) ? v : '';
   else if (e.target.id === 'f-month') fMonth = /^(\d|1[01])$/.test(v) ? v : '';
   else return;
-  fRange = null;
+  fRange = null; shown = PAGE_N;
   render();
 };
-$('filters').onclick = e => { if (e.target.closest('#f-clear')) { fYear = ''; fMonth = ''; fRange = null; render(); } };
+$('filters').onclick = e => { if (e.target.closest('#f-clear')) { fYear = ''; fMonth = ''; fRange = null; shown = PAGE_N; render(); } };
 $('fab').onclick = () => openEditor();
 $('gear').onclick = openSettings;
 $('list').onclick = e => {
+  if (e.target.closest('#more')) { loadMore(); return; }
   const st = e.target.closest('[data-start]');
   if (st) { e.stopPropagation(); startReading(st.dataset.start); return; }
   const m = e.target.closest('[data-finish]');
@@ -719,8 +792,15 @@ $('page-profile').onclick = e => {
   if (e.target.closest('#edit-profile')) openProfileEditor();
 };
 
+let lastDay = today();
+const checkDay = () => { if (today() !== lastDay) { lastDay = today(); render(); } };   // new day/month: graphs and dates refresh themselves
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+window.addEventListener('focus', checkDay); window.addEventListener('pageshow', checkDay);
+setInterval(checkDay, 60000);
+try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => applyTheme(profile)); } catch (e) {}
+
 (async () => {
-  loadProfile(); applyTheme(profile.color);
+  loadProfile(); loadMode(); applyTheme(profile);
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
   await load(); render();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
