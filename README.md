@@ -1,4 +1,3 @@
 # MaBooks
 
-i love my mama
--# made for my mom
+made for ma
