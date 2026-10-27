@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const DB = 'shelf', STORE = 'books', MIRROR = 'shelf-mirror', LASTBK = 'shelf-last-backup', PROFILE_KEY = 'mabooks-profile';
-let books = [], page = 'reading', query = '', rangeKey = '6M', deferredPrompt = null;
+let books = [], page = 'reading', query = '', fYear = '', fMonth = '', rangeKey = '6M', deferredPrompt = null;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -12,6 +12,71 @@ const today = () => ymd(new Date());
 const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s));
 const fmtDate = s => s ? new Date(s + 'T12:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
 const fmtMD = (s, yr) => new Date(s + 'T12:00:00').toLocaleDateString(undefined, yr ? {month:'short', day:'numeric', year:'numeric'} : {month:'short', day:'numeric'});
+
+/* ---------- fit to the screen ----------
+   iPhone Safari's "desktop view" lays the page out ~980px wide and shrinks it to fit, which makes a phone UI tiny.
+   Everything is sized in rem, so we measure how much it was shrunk and scale the root font to cancel that out.
+   On real desktops/tablets (big screens) nothing is scaled; they get the roomier .wide layout instead. */
+function fitScreen() {
+  const de = document.documentElement;
+  let k = 1;
+  try {
+    const small = Math.min(screen.width, screen.height), big = Math.max(screen.width, screen.height);
+    const land = matchMedia('(orientation: landscape)').matches;
+    const deviceW = land ? big : small;
+    if (small > 0 && small <= 520 && deviceW > 0) k = Math.min(3.2, Math.max(1, window.innerWidth / deviceW));
+  } catch (e) {}
+  if (k < 1.15) k = 1;
+  de.style.fontSize = (16 * k) + 'px';
+  de.classList.toggle('wide', window.innerWidth / k >= 900);
+}
+fitScreen();
+window.addEventListener('resize', fitScreen);
+window.addEventListener('orientationchange', () => setTimeout(fitScreen, 250));
+
+/* ---------- confetti (canvas, removes itself, skipped for reduced-motion) ---------- */
+function confetti() {
+  try {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const old = document.querySelector('canvas.confetti'); if (old) old.remove();
+    const cv = document.createElement('canvas'), g = cv.getContext('2d'); if (!g) return;
+    cv.className = 'confetti'; cv.setAttribute('aria-hidden', 'true');
+    const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    const u = (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) / 16;   // keeps pieces the same size on screen
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); g.scale(dpr, dpr);
+    const [a, b] = COLORS[profile.color] || COLORS.pink;
+    const pal = [a, b, '#ffffff', a, b, '#ffd9ec'];
+    const ps = [], rnd = (lo, hi) => lo + Math.random() * (hi - lo);
+    for (let i = 0; i < 150; i++) {
+      const left = i % 2 === 0;
+      const ang = (left ? rnd(-82, -50) : rnd(-130, -98)) * Math.PI / 180, sp = rnd(520, 1250) * u;
+      ps.push({x: W * (left ? 0.08 : 0.92), y: H * 0.82, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+        w: rnd(6, 11) * u, h: rnd(3.5, 6) * u, rot: rnd(0, 6.28), spin: rnd(-9, 9), tilt: rnd(0, 6.28), tspin: rnd(5, 12),
+        c: pal[i % pal.length], round: i % 5 === 0, life: rnd(2.0, 2.9)});
+    }
+    document.body.appendChild(cv);
+    const done = () => { cv.remove(); };
+    const failsafe = setTimeout(done, 6000);
+    const t0 = performance.now(); let last = t0;
+    const step = now => {
+      const dt = Math.min(0.033, (now - last) / 1000), el = (now - t0) / 1000; last = now;
+      g.clearRect(0, 0, W, H);
+      let alive = false;
+      for (const p of ps) {
+        if (el > p.life) continue;
+        alive = true;
+        p.vx *= Math.exp(-1.7 * dt); p.vy = p.vy * Math.exp(-1.3 * dt) + 1500 * u * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.spin * dt; p.tilt += p.tspin * dt;
+        g.globalAlpha = Math.max(0, Math.min(1, (p.life - el) / 0.7));
+        g.fillStyle = p.c; g.save(); g.translate(p.x, p.y); g.rotate(p.rot); g.scale(1, Math.cos(p.tilt));
+        if (p.round) { g.beginPath(); g.arc(0, 0, p.h * 0.8, 0, 6.2832); g.fill(); } else g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        g.restore();
+      }
+      if (alive) requestAnimationFrame(step); else { clearTimeout(failsafe); done(); }
+    };
+    requestAnimationFrame(step);
+  } catch (e) {}
+}
 
 /* ---------- profile (name, emoji, color, tagline, goal) ---------- */
 const COLORS = {
@@ -219,9 +284,38 @@ function render() {
   renderNudge();
 }
 
+const MONTHS = Array.from({length: 12}, (_, m) => new Date(2000, m, 15).toLocaleDateString(undefined, {month: 'long'}));
+const addedYmd = b => { const d = new Date(+b.added); return isNaN(d) ? '' : ymd(d); };
+// the date each page is organised by: Finished = date finished, Reading = date started, Wishlist = date added
+const bookDate = (b, pg) => pg === 'read' ? (isDate(b.finished) ? b.finished : '')
+  : pg === 'reading' && isDate(b.started) ? b.started : addedYmd(b);
+
 function renderList(reading, read, want) {
-  const q = query.trim().toLowerCase();
-  const list = ({reading, read, want})[page].filter(b => !q || (b.title + ' ' + b.author + ' ' + b.notes).toLowerCase().includes(q));
+  const pool = ({reading, read, want})[page];
+  const years = [...new Set(pool.map(b => bookDate(b, page).slice(0, 4)).filter(y => /^\d{4}$/.test(y)))].sort().reverse();
+  if (fYear && !years.includes(fYear)) fYear = '';
+  const q = query.trim().toLowerCase(), tokens = q.split(/\s+/).filter(Boolean);
+  const filtering = !!(fYear || fMonth !== '');
+  const list = pool.filter(b => {
+    const d = bookDate(b, page);
+    if (filtering) {
+      if (!d) return false;
+      if (fYear && d.slice(0, 4) !== fYear) return false;
+      if (fMonth !== '' && +d.slice(5, 7) - 1 !== +fMonth) return false;
+    }
+    if (!tokens.length) return true;
+    const hay = ((b.title || '') + ' ' + (b.author || '') + ' ' + (b.notes || '')).toLowerCase();
+    const yr = d.slice(0, 4), mo = (MONTHS[+d.slice(5, 7) - 1] || '').toLowerCase();
+    // every word must match the text OR the book's date (so "march 2024" or "2023" work too)
+    return tokens.every(t => hay.includes(t) || (d && (t === yr || (t.length >= 3 && mo.startsWith(t)))));
+  });
+  $('filters').innerHTML = pool.length ? `
+    <div class="frow">
+      <select id="f-year" aria-label="Year" class="${fYear ? 'set' : ''}"><option value="">All years</option>${years.map(y => `<option value="${y}"${y === fYear ? ' selected' : ''}>${y}</option>`).join('')}</select>
+      <select id="f-month" aria-label="Month" class="${fMonth !== '' ? 'set' : ''}"><option value="">All months</option>${MONTHS.map((m, i) => `<option value="${i}"${String(i) === fMonth ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select>
+      ${filtering ? '<button class="pill" id="f-clear">Clear</button>' : ''}
+    </div>
+    ${(filtering || tokens.length) ? `<div class="fcount">${list.length} of ${pool.length} book${pool.length === 1 ? '' : 's'}</div>` : ''}` : '';
   list.sort(page === 'read'
     ? (a, b) => String(b.finished || '').localeCompare(String(a.finished || '')) || b.added - a.added
     : page === 'reading'
@@ -253,7 +347,7 @@ function renderList(reading, read, want) {
         ${page !== 'want' && b.notes ? `<div class="note">${esc(b.notes)}</div>` : ''}
       </div>
     </div>`).join('')
-    : `<div class="empty">${q ? 'No matches.' : empty}</div>`;
+    : `<div class="empty">${(q || filtering) ? 'No matches.' : empty}</div>`;
 }
 
 function confirmFinish(id) {
@@ -267,7 +361,7 @@ function confirmFinish(id) {
   yes.onclick = async () => {
     yes.onclick = null;                       // ignore double taps
     b.status = 'read'; b.finished = today(); b.rating = b.rating || 0;
-    await save(b); closeSheet(); setPage('read');
+    await save(b); closeSheet(); setPage('read'); confetti();
   };
 }
 
@@ -321,7 +415,7 @@ function renderNudge() {
 }
 
 function setPage(p) {
-  page = p; query = ''; $('q').value = '';
+  page = p; query = ''; fYear = ''; fMonth = ''; $('q').value = '';
   render(); window.scrollTo(0, 0);
 }
 
@@ -336,7 +430,7 @@ const closeSheet = () => {
 scrim.onclick = closeSheet;
 
 function openEditor(b, forceStatus) {
-  const isNew = !b;
+  const isNew = !b, wasRead = !!b && b.status === 'read';
   const startStatus = ['reading', 'read', 'want'].includes(page) ? page : 'reading';
   b = b ? {...b} : {id: uid(), title:'', author:'', status: startStatus, rating:0, started:'', finished:'', notes:'', cover:'', added: Date.now()};
   b.started = b.started || '';
@@ -397,6 +491,7 @@ function openEditor(b, forceStatus) {
       if (b.status !== 'read') { b.rating = 0; b.finished = ''; }
       if (b.status === 'want') { b.started = ''; }
       await save(b); closeSheet(); setPage(b.status);
+      if (!isNew && !wasRead && b.status === 'read') confetti();
     };
     const d = $('del');
     if (d) d.onclick = async () => { if (confirm('Delete this book?')) { await remove(b.id); closeSheet(); render(); } };
@@ -541,6 +636,7 @@ async function openSettings() {
           <li>Tap the <b>Share</b> button, the square with an arrow.</li>
           <li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
         </ol>
+        <p>Don’t see it? Tap <b>aA</b> in the address bar, choose <b>Request Desktop Website</b>, then try the steps again. MaBooks looks the same either way.</p>
         ${navigator.share ? '<button class="btn ghost" id="a2hs-share">Open share menu</button>' : ''}
       </div>`}
     </div>
@@ -572,6 +668,14 @@ window.addEventListener('appinstalled', () => { deferredPrompt = null; });
 /* ---------- wire up ---------- */
 $('tabbar').onclick = e => { const t = e.target.closest('[data-page]'); if (t) setPage(t.dataset.page); };
 $('q').oninput = e => { query = e.target.value; render(); };
+$('filters').onchange = e => {
+  const v = e.target.value;
+  if (e.target.id === 'f-year') fYear = /^\d{4}$/.test(v) ? v : '';
+  else if (e.target.id === 'f-month') fMonth = /^(\d|1[01])$/.test(v) ? v : '';
+  else return;
+  render();
+};
+$('filters').onclick = e => { if (e.target.closest('#f-clear')) { fYear = ''; fMonth = ''; render(); } };
 $('fab').onclick = () => openEditor();
 $('gear').onclick = openSettings;
 $('list').onclick = e => {

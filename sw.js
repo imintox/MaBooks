@@ -1,4 +1,4 @@
-const CACHE = 'mabooks-v10';
+const CACHE = 'mabooks-v11';
 const FILES = ['./', './index.html', './manifest.webmanifest', './style.css', './app.js', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
