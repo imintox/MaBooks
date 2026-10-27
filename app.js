@@ -65,8 +65,9 @@ const idbReplace = list => tx('readwrite', s => { s.clear(); list.forEach(b => s
 const mirror = () => { try { localStorage.setItem(MIRROR, JSON.stringify(books.map(({cover, ...rest}) => rest))); } catch (e) {} };
 
 async function load() {
-  try { books = await idbAll(); } catch (e) { books = []; }
-  if (!books.length) {            // recover from mirror if IndexedDB was wiped
+  let readOk = true;
+  try { books = await idbAll(); } catch (e) { books = []; readOk = false; }
+  if (readOk && !books.length) {  // recover from mirror only if the database READ fine and is truly empty
     try {
       const m = JSON.parse(localStorage.getItem(MIRROR) || '[]');
       if (m.length) { books = m; await idbReplace(books); }
@@ -75,12 +76,17 @@ async function load() {
   books = books.filter(b => b && typeof b === 'object');
   books.forEach(b => { b.cover = cleanCover(b.cover); });
 }
+const SAVE_FAIL = 'Couldn’t save to this device’s storage (it may be full or blocked). Please save a backup now.';
 async function save(b) {
   const i = books.findIndex(x => x.id === b.id);
   if (i >= 0) books[i] = b; else books.push(b);
-  mirror(); await idbPut(b);
+  mirror();
+  try { await idbPut(b); } catch (e) { alert(SAVE_FAIL); throw e; }
 }
-async function remove(id) { books = books.filter(b => b.id !== id); mirror(); await idbDel(id); }
+async function remove(id) {
+  books = books.filter(b => b.id !== id); mirror();
+  try { await idbDel(id); } catch (e) { alert(SAVE_FAIL); throw e; }
+}
 
 /* ---------- covers (saved on the phone) + optional Open Library search ---------- */
 const COVER_W = 240, COVER_H = 360;
@@ -239,7 +245,7 @@ function renderList(reading, read, want) {
 
   $('list').innerHTML = list.length ? list.map(b => `
     <div class="book" data-id="${esc(b.id)}">
-      ${b.cover ? `<img class="cov" src="${esc(b.cover)}" alt="">` : ''}
+      ${b.cover ? `<img class="cov" src="${esc(b.cover)}" alt="" loading="lazy" decoding="async">` : ''}
       <div class="bk">
         <div class="t">${esc(b.title)}</div>
         ${b.author ? `<div class="a">${esc(b.author)}</div>` : ''}

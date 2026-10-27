@@ -56,9 +56,10 @@ h1{font-size:30px;font-weight:700;letter-spacing:-.02em;margin:0}
 .scrim.show{opacity:1;pointer-events:auto}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:var(--card);
   border-radius:22px 22px 0 0;padding:18px 18px calc(var(--safe-b) + 18px);
-  max-height:92dvh;overflow:auto;transform:translateY(105%);transition:transform .28s cubic-bezier(.2,.8,.2,1);
+  max-height:92dvh;overflow:auto;transform:translateY(105%);visibility:hidden;
+  transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s linear .28s;
   max-width:640px;margin:0 auto}
-.sheet.show{transform:none}
+.sheet.show{transform:none;visibility:visible;transition:transform .28s cubic-bezier(.2,.8,.2,1),visibility 0s}
 .sheet h2{margin:0 0 14px;font-size:19px}
 label{display:block;color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px}
 label .opt{text-transform:none;letter-spacing:0;opacity:.7;margin-left:4px}
