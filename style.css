@@ -64,3 +64,9 @@ textarea{min-height:90px;resize:vertical}
 
 .seg.flush{margin-bottom:0}
 .row.flush{margin-top:0}
+
+.steps{margin-top:12px;color:var(--dim);font-size:14px;line-height:1.5}
+.steps[hidden]{display:none}
+.steps ol{margin:0 0 12px;padding-left:20px}
+.steps li{margin-bottom:6px}
+.steps b{color:var(--text)}

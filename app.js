@@ -194,12 +194,36 @@ async function openSettings() {
       <div class="row flush"><button class="btn" id="exp">Save backup</button><button class="btn ghost" id="imp">Restore</button></div>
     </div>
     <div class="set-card">
-      <p>${standalone ? '<span class="ok">✓</span> Installed on Home Screen — iOS protects its storage from the 7-day clean-up.' : 'Not installed yet. In Safari tap Share → <b>Add to Home Screen</b> so iOS keeps your data safe.'}<br>
+      <p>${standalone ? '<span class="ok">✓</span> Installed on Home Screen — iOS protects its storage from the 7-day clean-up.' : 'Add MaBooks to your Home Screen so it opens like a real app and iOS keeps your data safe.'}<br>
       ${persisted ? '<span class="ok">✓</span> Persistent storage granted.' : ''}</p>
+      ${standalone ? '' : `<button class="btn" id="a2hs">Add to Home Screen</button>
+      <div class="steps" id="a2hs-steps" hidden>
+        <ol>
+          <li>Open this page in <b>Safari</b> (not inside another app).</li>
+          <li>Tap the <b>Share</b> button, the square with an arrow.</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+        </ol>
+        ${navigator.share ? '<button class="btn ghost" id="a2hs-share">Open share menu</button>' : ''}
+      </div>`}
     </div>
     <div class="row"><button class="btn ghost" id="close">Done</button></div>`);
   $('exp').onclick = exportBackup; $('imp').onclick = importBackup; $('close').onclick = closeSheet;
+  const a2 = $('a2hs');
+  if (a2) a2.onclick = async () => {
+    if (deferredPrompt) {            // Android / desktop Chrome: real install prompt
+      deferredPrompt.prompt();
+      try { await deferredPrompt.userChoice; } catch (e) {}
+      deferredPrompt = null; return openSettings();
+    }
+    const st = $('a2hs-steps'); st.hidden = !st.hidden;   // iOS: show the steps
+  };
+  const sh = $('a2hs-share');
+  if (sh) sh.onclick = () => { try { navigator.share({title: 'MaBooks', url: location.href.split('#')[0]}).catch(() => {}); } catch (e) {} };
 }
+
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+window.addEventListener('appinstalled', () => { deferredPrompt = null; });
 
 /* ---------- wire up ---------- */
 $('tab-read').onclick = () => { tab = 'read'; render(); };
