@@ -112,6 +112,8 @@ textarea{min-height:5.625rem;resize:vertical}
 .chart .bar{transform-box:fill-box;transform-origin:50% 100%;animation:grow .55s cubic-bezier(.2,.8,.2,1) both}
 .chart .bar0{fill:var(--line)}
 .chart .val{fill:var(--text);font-size:10px;font-weight:700;text-anchor:middle}
+.chart .hit{fill:transparent;cursor:pointer}
+.chart .hit:hover{fill:rgba(255,255,255,.05)}
 .chart .lab{fill:var(--dim);font-size:9px;text-anchor:middle}
 @keyframes grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 @media (prefers-reduced-motion:reduce){.chart .bar{animation:none}}
@@ -190,3 +192,6 @@ progress.goal::-moz-progress-bar{background:var(--accent);border-radius:0.3125re
 .wide .tiles{gap:.75rem}
 .wide .tile{padding:1rem .25rem}
 @media (prefers-reduced-motion:reduce){.wide .sheet,.sheet{transition:none !important}}
+
+.hint{text-align:center;margin-top:.25rem}
+.seg button{min-width:0}
